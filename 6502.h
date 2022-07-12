@@ -29,13 +29,12 @@ typedef enum {
 	D,    /* Decimal mode  */
 	B,    /* Break */
 	U,    /* Unused */
-	O,    /* Overflow */
+	V,    /* Overflow */
 	N     /* Negative */
 } ST_FLAG;
 
 void CPU_init(void);
 void CPU_reset(void);
-void CPU_clock(void);
 void CPU_fetch(INS *ins);
 void CPU_exec(INS ins);
 
@@ -46,15 +45,16 @@ void CPU_set_flag(ST_FLAG flag, uint8_t val);
 uint8_t CPU_get_flag(ST_FLAG flag);
 
 void CPU_dump(void);
+char *CPU_mode_name(uint8_t (*mode)(void));
 
 void MEM_init(void);
 void MEM_dump(void);
+void MEM_dump_page(uint16_t page);
 void MEM_load_from_file(char *fp);
 
-uint8_t MEM_fetch(uint16_t addr);
+uint8_t MEM_read(uint16_t addr);
 uint8_t MEM_write(uint16_t addr, uint8_t val);
 
-char *mode_to_str(uint8_t (*mode)(void));
 
 /*  Addresing modes  */
 uint8_t ABS(void);

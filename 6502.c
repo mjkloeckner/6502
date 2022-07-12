@@ -8,14 +8,14 @@ static MEM mem; /* 8 bit word */
 
 static uint8_t cyc;
 static uint8_t opc;
-static uint8_t fch;
+static uint8_t tmp;
 
 static uint16_t  addr_abs;
 static uint16_t  addr_rel;
 
-INS lookup[0x100];
+INS decode[0x100];
 
-static uint8_t ST_FLAG_MASK[] = { 
+static uint8_t ST_FLAG_MASK[] = {
 	(1 << 0),    /* Carry */
 	(1 << 1),    /* Zero  */
 	(1 << 2),    /* Disable interrupts  */
@@ -30,39 +30,56 @@ static uint8_t ST_FLAG_MASK[] = {
 /* Cpu methods */
 void CPU_init(void) {
 	cpu.ac = cpu.x = cpu.y = cpu.sp = cpu.st = 0;
+	cyc = opc = tmp = 0;
 }
 
 void CPU_reset(void) {
-	cpu.sp = 0xFF;	 /* first page */
-	cpu.st = 0x00 | ST_FLAG_MASK[U];
+	/* simulate 8 cycles needed to reset the cpu */
+	do {
+		if(cyc == 0) {
+			cpu.sp = 0xFF;	 /* first page */
+			cpu.st = 0x00 | ST_FLAG_MASK[U];
 
-	/* little endian */
-	uint16_t lo = MEM_fetch(0xFFFC);
-	uint16_t hi = MEM_fetch(0xFFFD);
+			/* little endian */
+			uint16_t lo = MEM_read(0xFFFC);
+			uint16_t hi = MEM_read(0xFFFD);
 
-	cpu.pc = (hi << 8) | lo;
+			cpu.pc = (hi << 8) | lo;
 
-	addr_abs = addr_rel = opc = 0x0000;
+			addr_abs = addr_rel = opc = 0x0000;
 
-	cyc = 8;
-}
-
-void CPU_clock(void) {
+			cyc = 8;
+		}
+		cyc--;
+	} while(cyc != 0);
 }
 
 void CPU_fetch(INS *ins) {
-	*ins = lookup[MEM_fetch(cpu.pc++)];
+	*ins = decode[MEM_read(cpu.pc)];
 }
 
-void CPU_exec(const INS ins) {
-	addr_abs = 0x0000;
-	ins.mode();
-	ins.op();
+void CPU_exec(INS ins) {
+	/* simulate instructions cycles */
+    do {
+        if(cyc == 0) {
+			cpu.pc++;
+
+			cyc = ins.cycles;
+
+			uint8_t add_cyc_0 = ins.mode();
+			uint8_t add_cyc_1 = ins.op();
+
+			cyc += add_cyc_0 & add_cyc_1;
+        }
+		cyc--;
+    } while(cyc != 0);
 }
 
+/* interrupt request */
 void CPU_irq(void) {
 }
 
+/* non maskeable interrupt request */
 void CPU_nm_irq(void) {
 }
 
@@ -84,14 +101,14 @@ void print_reg(uint8_t reg) {
 }
 
 void CPU_dump(void) {
-	printf("N O - B D I Z C\n");
+	INS aux = decode[MEM_read(cpu.pc)];
+
+	printf("    a:   %02X (%3d)            N V - B D I Z C\n", cpu.ac, cpu.ac);
+	printf("    x:   %02X (%3d)            ", cpu.x, cpu.x);
 	print_reg(cpu.st);
-	printf("        a:   %02X\n", cpu.ac);
-	printf("        x:   %02X\n", cpu.x);
-	printf("        y:   %02X\n", cpu.y);
-	printf("       sp:   %02X\n", cpu.sp);
-	printf("       pc: %04X\n", cpu.pc);
-	printf("ram[%04X]:   %02X\n", cpu.pc, mem.ram[cpu.pc]);
+	printf("    y:   %02X (%3d)\n", cpu.y, cpu.y);
+	printf("   sp:   %02X\n", cpu.sp);
+	printf("   pc: %04X -> %02X (%s)(%s)\n", cpu.pc, mem.ram[cpu.pc], aux.name, CPU_mode_name(aux.mode));
 }
 
 /* Memory methods */
@@ -99,6 +116,7 @@ void MEM_init(void) {
 	for(uint16_t i = 0; i < 0xFFFF; i++)
 		mem.ram[i] = 0;
 
+	/* First address that pc reads */
 	mem.ram[0xFFFC] = 0x00;
 	mem.ram[0xFFFD] = 0x80;
 }
@@ -116,7 +134,7 @@ void MEM_load_from_file(char *path) {
 	fclose(fp);
 }
 
-uint8_t MEM_fetch(uint16_t addr) {
+uint8_t MEM_read(uint16_t addr) {
 	return mem.ram[addr];
 }
 
@@ -125,14 +143,24 @@ uint8_t MEM_write(uint16_t addr, uint8_t val) {
 	return 0;
 }
 
-void MEM_dump(void) {
+void MEM_dump() {
 	for(uint16_t i = 0; i < 0xF; i++)
 		printf("%02X ", mem.ram[i]);
 
 	putchar('\n');
 }
 
-char *mode_to_str(uint8_t (*mode)(void)) {
+void MEM_dump_page(uint16_t page) {
+	uint16_t j = 1;
+
+	printf("Page %04X:\n", page);
+	for(uint16_t i = page; i < (page + 0x3C); i++, j++)
+		printf("%02X %s", mem.ram[i], (j % 0xF) ? "" : "\n");
+
+	putchar('\n');
+}
+
+char *CPU_mode_name(uint8_t (*mode)(void)) {
 	if(mode == &IMM) return "IMM";
 	else if(mode == &ABS) return "ABS";
 	else if(mode == &ABX) return "ABX";
@@ -149,8 +177,463 @@ char *mode_to_str(uint8_t (*mode)(void)) {
 	return "NUL";
 }
 
+/* Addressing modes */
+uint8_t ABS(void) {
+	uint16_t lo = MEM_read(cpu.pc++);
+	uint16_t hi = MEM_read(cpu.pc++);
+
+	addr_abs = (hi << 8) | lo;
+	return 0;
+}
+
+uint8_t ABX(void) {
+	return 0;
+}
+
+uint8_t ABY(void) {
+	return 0;
+}
+
+uint8_t IMM(void) {
+	addr_abs = cpu.pc++;
+	return 0;
+}
+
+uint8_t IMP(void) {
+	tmp = cpu.ac;
+	return 0;
+}
+
+uint8_t IND(void) {
+	return 0;
+}
+
+uint8_t IZX(void) {
+	return 0;
+}
+
+uint8_t IZY(void) {
+	return 0;
+}
+
+uint8_t REL(void) {
+	addr_rel = MEM_read(cpu.pc++);
+
+    if(addr_rel & (1 << 7))
+		addr_rel |= 0xFF00;
+
+	return 0;
+}
+
+uint8_t ZP0(void) {
+	return 0;
+}
+
+uint8_t ZPX(void) {
+	return 0;
+}
+
+uint8_t ZPY(void) {
+	return 0;
+}
+
+
+/* Instructions */
+uint8_t ADC(void) {
+	uint8_t data = MEM_read(addr_abs);
+
+	cpu.ac += (data + CPU_get_flag(C));
+
+	CPU_set_flag(Z, cpu.ac == 0);
+	CPU_set_flag(N, cpu.ac & (1 << 7));
+	CPU_set_flag(V, ((cpu.ac^data) & ~(cpu.ac^data)) & (1 << 7));
+
+	return 1;
+}
+
+uint8_t AND(void) {
+	cpu.ac &= MEM_read(addr_abs);
+
+	CPU_set_flag(Z, cpu.ac == 0);
+	CPU_set_flag(N, cpu.ac & (1 << 7));
+
+	return 1;
+}
+
+uint8_t ASL(void) {
+
+	return 0;
+}
+
+uint8_t BCC(void) {
+	if(!CPU_get_flag(C)) {
+		addr_abs = cpu.pc + addr_rel;
+
+		/* if address changes page */
+		if((addr_abs & (1 << 7)) != (cpu.pc & (1 << 7)))
+			cyc++;
+
+		cpu.pc = addr_abs;
+	}
+
+	return 0;
+}
+
+uint8_t BCS(void) {
+	if(CPU_get_flag(C)) {
+		addr_abs = cpu.pc + addr_rel;
+
+		/* if address changes page */
+		if((addr_abs & (1 << 7)) != (cpu.pc & (1 << 7)))
+			cyc++;
+
+		cpu.pc = addr_abs;
+	}
+
+	return 0;
+}
+
+uint8_t BEQ(void) {
+	if(CPU_get_flag(Z)) {
+		addr_abs = cpu.pc + addr_rel;
+
+		/* if address changes page */
+		if((addr_abs & (1 << 7)) != (cpu.pc & (1 << 7)))
+			cyc++;
+
+		cpu.pc = addr_abs;
+	}
+
+	return 0;
+}
+
+uint8_t BIT(void) {
+	return 0;
+}
+
+uint8_t BMI(void) {
+	if(CPU_get_flag(N)) {
+		addr_abs = cpu.pc + addr_rel;
+
+		/* if address changes page */
+		if((addr_abs & (1 << 7)) != (cpu.pc & (1 << 7)))
+			cyc++;
+
+		cpu.pc = addr_abs;
+	}
+
+	return 0;
+}
+
+uint8_t BNE(void) {
+	if(!CPU_get_flag(Z)) {
+		addr_abs = cpu.pc + addr_rel;
+
+		/* if address changes page */
+		if((addr_abs & (1 << 7)) != (cpu.pc & (1 << 7)))
+			cyc++;
+
+		cpu.pc = addr_abs;
+	}
+
+	return 0;
+}
+
+uint8_t BPL(void) {
+	if(!CPU_get_flag(N)) {
+		addr_abs = cpu.pc + addr_rel;
+
+		/* if address changes page */
+		if((addr_abs & (1 << 7)) != (cpu.pc & (1 << 7)))
+			cyc++;
+
+		cpu.pc = addr_abs;
+	}
+
+	return 0;
+}
+
+uint8_t BRK(void) {
+
+	return 0;
+}
+
+uint8_t BVC(void) {
+	if(!CPU_get_flag(V)) {
+		addr_abs = cpu.pc + addr_rel;
+
+		/* if address changes page */
+		if((addr_abs & (1 << 7)) != (cpu.pc & (1 << 7)))
+			cyc++;
+
+		cpu.pc = addr_abs;
+	}
+
+	return 0;
+}
+
+uint8_t BVS(void) {
+	if(CPU_get_flag(V)) {
+		addr_abs = cpu.pc + addr_rel;
+
+		/* if address changes page */
+		if((addr_abs & (1 << 7)) != (cpu.pc & (1 << 7)))
+			cyc++;
+
+		cpu.pc = addr_abs;
+	}
+
+	return 0;
+}
+
+uint8_t CLC(void) {
+	CPU_set_flag(C, 0);
+	return 0;
+}
+
+uint8_t CLD(void) {
+	CPU_set_flag(D, 0);
+	return 0;
+}
+
+uint8_t CLI(void) {
+	CPU_set_flag(I, 0);
+	return 0;
+}
+
+uint8_t CLV(void) {
+	CPU_set_flag(V, 0);
+	return 0;
+}
+
+uint8_t CMP(void) {
+	return 0;
+}
+
+uint8_t CPX(void) {
+	return 0;
+}
+
+uint8_t CPY(void) {
+	return 0;
+}
+
+uint8_t DEC(void) {
+	tmp = (MEM_read(addr_abs) - 1) & 0x00FF;
+	MEM_write(addr_abs, tmp);
+
+	CPU_set_flag(Z, tmp == 0);
+	CPU_set_flag(N, tmp & 0xFF);
+
+	return 0;
+}
+
+/* Decrements X register */
+uint8_t DEX(void) {
+	cpu.x -= 1;
+
+	CPU_set_flag(Z, cpu.x == 0);
+	CPU_set_flag(N, cpu.x & (1 << 7));
+
+	return 0;
+}
+
+/* Decrements Y register */
+uint8_t DEY(void) {
+	cpu.y -= 1;
+
+	CPU_set_flag(Z, cpu.y == 0);
+	CPU_set_flag(N, cpu.y & (1 << 7));
+
+	return 0;
+}
+
+uint8_t EOR(void) {
+	cpu.ac ^= MEM_read(addr_abs);
+
+	CPU_set_flag(Z, cpu.ac == 0);
+	CPU_set_flag(N, cpu.ac & (1 << 7));
+
+	return 1;
+}
+
+uint8_t INC(void) {
+	tmp = MEM_read(addr_abs + 1);
+
+	MEM_write(addr_abs, tmp);
+
+	CPU_set_flag(Z, tmp == 0);
+	CPU_set_flag(N, tmp & (1 << 7));
+
+	return 0;
+}
+
+uint8_t INX(void) {
+	cpu.x += 1;
+
+	CPU_set_flag(Z, cpu.x == 0);
+	CPU_set_flag(N, cpu.x & (1 << 7));
+
+	return 0;
+}
+
+uint8_t INY(void) {
+	cpu.y += 1;
+
+	CPU_set_flag(Z, cpu.y == 0);
+	CPU_set_flag(N, cpu.y & (1 << 7));
+
+	return 0;
+}
+
+uint8_t JMP(void) {
+	return 0;
+}
+
+uint8_t JSR(void) {
+	return 0;
+}
+
+uint8_t LDA(void) {
+	cpu.ac = MEM_read(addr_abs);
+
+	CPU_set_flag(Z, cpu.ac == 0);
+	CPU_set_flag(N, cpu.ac & (1 << 7));
+
+	return 1;
+}
+
+uint8_t LDX(void) {
+	cpu.x = MEM_read(addr_abs);
+
+	CPU_set_flag(Z, cpu.x == 0);
+	CPU_set_flag(N, cpu.x & (1 << 7));
+
+	return 1;
+}
+
+uint8_t LDY(void) {
+	cpu.y = MEM_read(addr_abs);
+
+	CPU_set_flag(Z, cpu.y == 0);
+	CPU_set_flag(N, cpu.y & (1 << 7));
+
+	return 1;
+}
+
+uint8_t LSR(void) {
+	return 0;
+}
+
+uint8_t NOP(void) {
+	return 0;
+}
+
+uint8_t ORA(void) {
+	cpu.ac |= MEM_read(addr_abs);
+
+	CPU_set_flag(Z, cpu.ac == 0);
+	CPU_set_flag(N, cpu.ac & (1 << 7));
+
+	return 1;
+}
+
+uint8_t PHA(void) {
+	return 0;
+}
+
+uint8_t PHP(void) {
+	return 0;
+}
+
+uint8_t PLA(void) {
+	return 0;
+}
+
+uint8_t PLP(void) {
+	return 0;
+}
+
+uint8_t ROL(void) {
+	return 0;
+}
+
+uint8_t ROR(void) {
+	return 0;
+}
+
+uint8_t RTI(void) {
+	return 0;
+}
+
+uint8_t RTS(void) {
+	return 0;
+}
+
+uint8_t SBC(void) {
+	return 0;
+}
+
+uint8_t SEC(void) {
+	CPU_set_flag(C, 1);
+	return 0;
+}
+
+uint8_t SED(void) {
+	CPU_set_flag(D, 1);
+	return 0;
+}
+
+uint8_t SEI(void) {
+	CPU_set_flag(I, 1);
+	return 0;
+}
+
+uint8_t STA(void) {
+	MEM_write(addr_abs, cpu.ac);
+	return 0;
+}
+
+uint8_t STX(void) {
+	MEM_write(addr_abs, cpu.x);
+	return 0;
+}
+
+uint8_t STY(void) {
+	MEM_write(addr_abs, cpu.y);
+	return 0;
+}
+
+uint8_t TAX(void) {
+	return 0;
+}
+
+uint8_t TAY(void) {
+	return 0;
+}
+
+uint8_t TSX(void) {
+	return 0;
+}
+
+uint8_t TXA(void) {
+	return 0;
+}
+
+uint8_t TXS(void) {
+	return 0;
+}
+
+uint8_t TYA(void) {
+	return 0;
+}
+
+uint8_t NUL(void) {
+	return 0;
+}
+
 /* Lookup table */
-INS lookup[0x100] = {
+INS decode[0x100] = {
     {"BRK", &BRK, &IMM, 7}, {"ORA", &ORA, &IZX, 6}, {"???", &NUL, &IMP, 2},
     {"???", &NUL, &IMP, 8}, {"???", &NOP, &IMP, 3}, {"ORA", &ORA, &ZP0, 3},
     {"ASL", &ASL, &ZP0, 5}, {"???", &NUL, &IMP, 5}, {"PHP", &PHP, &IMP, 3},
@@ -239,335 +722,3 @@ INS lookup[0x100] = {
     {"???", &NUL, &IMP, 7}
 };
 
-
-/* Addressing modes */
-uint8_t ABS(void) {
-	uint8_t lo = MEM_fetch(cpu.pc++);
-	uint8_t hi = MEM_fetch(cpu.pc++);
-
-	addr_abs = (hi << 8) | lo;
-	return 0;
-}
-
-uint8_t ABX(void) {
-	return 0;
-}
-
-uint8_t ABY(void) {
-	return 0;
-}
-
-uint8_t IMM(void) {
-	addr_abs = cpu.pc++;
-	return 0;
-}
-
-uint8_t IMP(void) {
-	fch = cpu.ac;
-	return 0;
-}
-
-uint8_t IND(void) {
-	return 0;
-}
-
-uint8_t IZX(void) {
-	return 0;
-}
-
-uint8_t IZY(void) {
-	return 0;
-}
-
-uint8_t REL(void) {
-	addr_rel = MEM_fetch(cpu.pc++);
-
-    if(addr_rel & (1 << 7))
-		addr_rel |= 0xFF00;
-
-	return 0;
-}
-
-uint8_t ZP0(void) {
-	return 0;
-}
-
-uint8_t ZPX(void) {
-	return 0;
-}
-
-uint8_t ZPY(void) {
-	return 0;
-}
-
-
-/* Instructions */
-uint8_t ADC(void) {
-	uint8_t data = MEM_fetch(addr_abs);
-
-	cpu.ac += (data + CPU_get_flag(C));
-
-	CPU_set_flag(Z, cpu.ac == 0);
-	CPU_set_flag(N, cpu.ac & (1 << 7));
-	CPU_set_flag(O, ((cpu.ac^data) & ~(cpu.ac^data)) & (1 << 7));
-
-	return 1;
-}
-
-uint8_t AND(void) {
-	return 0;
-}
-
-uint8_t ASL(void) {
-	
-	return 0;
-}
-
-uint8_t BCC(void) {
-	return 0;
-}
-
-uint8_t BCS(void) {
-	return 0;
-}
-
-uint8_t BEQ(void) {
-	return 0;
-}
-
-uint8_t BIT(void) {
-	return 0;
-}
-
-uint8_t BMI(void) {
-	return 0;
-}
-
-uint8_t BNE(void) {
-	if(!CPU_get_flag(Z))
-		cpu.pc += addr_rel;
-
-	return 0;
-}
-
-uint8_t BPL(void) {
-	return 0;
-}
-
-uint8_t BRK(void) {
-	return 0;
-}
-
-uint8_t BVC(void) {
-	return 0;
-}
-
-uint8_t BVS(void) {
-	return 0;
-}
-
-uint8_t CLC(void) {
-	CPU_set_flag(C, 0);
-	return 0;
-}
-
-uint8_t CLD(void) {
-	return 0;
-}
-
-uint8_t CLI(void) {
-	return 0;
-}
-
-uint8_t CLV(void) {
-	return 0;
-}
-
-uint8_t CMP(void) {
-	return 0;
-}
-
-uint8_t CPX(void) {
-	return 0;
-}
-
-uint8_t CPY(void) {
-	return 0;
-}
-
-uint8_t DEC(void) {
-	return 0;
-}
-
-uint8_t DEX(void) {
-	cpu.x -= 1;
-
-	CPU_set_flag(Z, cpu.x == 0);
-	CPU_set_flag(N, cpu.x & (1 << 7));
-
-	return 0;
-}
-
-/* Subtracts one from the Y register */
-uint8_t DEY(void) {
-	cpu.y -= 1;
-
-	CPU_set_flag(Z, cpu.y == 0);
-	CPU_set_flag(N, cpu.y & (1 << 7));
-
-	return 0;
-}
-
-uint8_t EOR(void) {
-	return 0;
-}
-
-uint8_t INC(void) {
-	return 0;
-}
-
-uint8_t INX(void) {
-	return 0;
-}
-
-uint8_t INY(void) {
-	return 0;
-}
-
-uint8_t JMP(void) {
-	return 0;
-}
-
-uint8_t JSR(void) {
-	return 0;
-}
-
-uint8_t LDA(void) {
-	cpu.ac = MEM_fetch(addr_abs);
-
-	CPU_set_flag(Z, cpu.ac == 0);
-	CPU_set_flag(N, cpu.ac & (1 << 7));
-
-	return 0;
-}
-
-uint8_t LDX(void) {
-	cpu.x = MEM_fetch(addr_abs);
-
-	CPU_set_flag(Z, cpu.x == 0);
-	CPU_set_flag(N, cpu.x & (1 << 7));
-
-	return 0;
-}
-
-uint8_t LDY(void) {
-	cpu.y = MEM_fetch(addr_abs);
-
-	CPU_set_flag(Z, cpu.y == 0);
-	CPU_set_flag(N, cpu.y & (1 << 7));
-
-	return 0;
-}
-
-uint8_t LSR(void) {
-	return 0;
-}
-
-uint8_t NOP(void) {
-	return 0;
-}
-
-uint8_t ORA(void) {
-	return 0;
-}
-
-uint8_t PHA(void) {
-	return 0;
-}
-
-uint8_t PHP(void) {
-	return 0;
-}
-
-uint8_t PLA(void) {
-	return 0;
-}
-
-uint8_t PLP(void) {
-	return 0;
-}
-
-uint8_t ROL(void) {
-	return 0;
-}
-
-uint8_t ROR(void) {
-	return 0;
-}
-
-uint8_t RTI(void) {
-	return 0;
-}
-
-uint8_t RTS(void) {
-	return 0;
-}
-
-uint8_t SBC(void) {
-	return 0;
-}
-
-uint8_t SEC(void) {
-	return 0;
-}
-
-uint8_t SED(void) {
-	return 0;
-}
-
-uint8_t SEI(void) {
-	return 0;
-}
-
-uint8_t STA(void) {
-	MEM_write(addr_abs, cpu.ac);
-	return 0;
-}
-
-uint8_t STX(void) {
-	MEM_write(addr_abs, cpu.x);
-	return 0;
-}
-
-uint8_t STY(void) {
-	return 0;
-}
-
-uint8_t TAX(void) {
-	return 0;
-}
-
-uint8_t TAY(void) {
-	return 0;
-}
-
-uint8_t TSX(void) {
-	return 0;
-}
-
-uint8_t TXA(void) {
-	return 0;
-}
-
-uint8_t TXS(void) {
-	return 0;
-}
-
-uint8_t TYA(void) {
-	return 0;
-}
-
-
-uint8_t NUL(void) {
-	return 0;
-}
