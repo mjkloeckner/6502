@@ -15,5 +15,5 @@ WARNING: not all the CPU instructions are implemented yet (too minimal lol)
 - “Hello, world” from scratch on a 6502 — Part 1: <br>
 	https://www.youtube.com/watch?v=LnzuMJLZRdU
 
-- Obelisk webpage archive
+- Obelisk webpage archive: <br>
 	https://web.archive.org/web/20210803072420/http://www.obelisk.me.uk/6502/
