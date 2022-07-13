@@ -1,7 +1,6 @@
 #ifndef __6502_H__
 #define __6502_H__
 
-#include <stdio.h>
 #include <stdint.h>
 
 /* Instruction */
@@ -17,11 +16,15 @@ typedef struct {
 	uint16_t pc;
 } CPU;
 
+
+/* zero-page: fast shorter instructions
+ * first-page: stack;
+ * last-six bytes: used to store special addresses */
 typedef struct {
-	uint8_t ram[0xFFFF]; /* 8 bit word */
+	uint8_t ram[0x10000]; /* 64kb memory */
 } MEM;
 
-/* 6502 status register */
+/* 6502 status register flags */
 typedef enum {
 	C,    /* Carry */
 	Z,    /* Zero  */
@@ -50,6 +53,7 @@ char *CPU_mode_name(uint8_t (*mode)(void));
 void MEM_init(void);
 void MEM_dump(void);
 void MEM_dump_page(uint16_t page);
+void MEM_dump_last_six(void);
 void MEM_load_from_file(char *fp);
 
 uint8_t MEM_read(uint16_t addr);

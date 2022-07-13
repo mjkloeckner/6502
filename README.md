@@ -3,6 +3,15 @@
 WARNING: not all the CPU instructions are implemented yet (too minimal lol)
 
 ## Resources used
+- W65C02S datasheet (newer 6502): <br>
+	https://eater.net/datasheets/w65c02s.pdf
+
+- 6502 Instruction Set: <br>
+	https://www.masswerk.at/6502/6502_instruction_set.html
+
+- 6502 Assembly: <br>
+	https://en.wikibooks.org/wiki/6502_Assembly
+
 - 27c3: Reverse Engineering the MOS 6502 CPU (en): <br>
 	https://www.youtube.com/watch?v=fWqBmmPQP40&t=34s
 

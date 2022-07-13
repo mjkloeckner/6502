@@ -1,7 +1,6 @@
 #include "6502.h"
 
 #include <stdio.h>
-#include <stdbool.h>
 
 #define INPUT_FILE_PATH	"10times3.bin"
 
@@ -28,10 +27,9 @@ int main (void) {
 
 		CPU_dump();
 
-		putchar('\n');
-
 		MEM_dump_page(0x0000);
-		MEM_dump_page(0x8000);
+		MEM_dump_page(0x0100);
+		MEM_dump_last_six();
 
 		/* Execute instruction */
 		CPU_exec(ins);

@@ -1,7 +1,6 @@
 #include "6502.h"
 
 #include <stdio.h>
-#include <string.h>
 
 static CPU cpu;
 static MEM mem; /* 8 bit word */
@@ -77,10 +76,41 @@ void CPU_exec(INS ins) {
 
 /* interrupt request */
 void CPU_irq(void) {
+	if(!CPU_get_flag(I)) {
+		/* requires two writes since `sp` is 8bits */
+		MEM_write(0x100 + cpu.sp--, (cpu.pc >> 8) & 0x00FF);
+		MEM_write(0x100 + cpu.sp--, cpu.pc & 0x00FF);
+
+		CPU_set_flag(I, 1);
+		MEM_write(0x100 + cpu.sp--, cpu.st);
+
+		addr_abs = 0xFFFE;
+		uint16_t lo = MEM_read(addr_abs + 0);
+		uint16_t hi = MEM_read(addr_abs + 1);
+
+		cpu.pc = (hi << 8) | lo;
+
+		cyc = 7;
+	}
 }
 
 /* non maskeable interrupt request */
 void CPU_nm_irq(void) {
+	/* requires two writes since `sp` is 8bits */
+	MEM_write(0x100 + cpu.sp--, (cpu.pc >> 8) & 0x00FF);
+	MEM_write(0x100 + cpu.sp--, cpu.pc & 0x00FF);
+
+	CPU_set_flag(B, 0);
+	CPU_set_flag(I, 1);
+	MEM_write(0x100 + cpu.sp--, cpu.st);
+
+	addr_abs = 0xFFFA;
+	uint16_t lo = MEM_read(addr_abs + 0);
+	uint16_t hi = MEM_read(addr_abs + 1);
+
+	cpu.pc = (hi << 8) | lo;
+
+	cyc = 8;
 }
 
 void CPU_set_flag(ST_FLAG flag, uint8_t val) {
@@ -96,7 +126,6 @@ void print_reg(uint8_t reg) {
 		putchar((reg & (0x01 << (i - 1))) ? '1' : '0');
 		putchar(' ');
 	}
-
 	putchar('\n');
 }
 
@@ -108,7 +137,7 @@ void CPU_dump(void) {
 	print_reg(cpu.st);
 	printf("    y:   %02X (%3d)\n", cpu.y, cpu.y);
 	printf("   sp:   %02X\n", cpu.sp);
-	printf("   pc: %04X -> %02X (%s)(%s)\n", cpu.pc, mem.ram[cpu.pc], aux.name, CPU_mode_name(aux.mode));
+	printf("   pc: %04X -> %02X (%s)(%s)\n\n", cpu.pc, mem.ram[cpu.pc], aux.name, CPU_mode_name(aux.mode));
 }
 
 /* Memory methods */
@@ -154,8 +183,16 @@ void MEM_dump_page(uint16_t page) {
 	uint16_t j = 1;
 
 	printf("Page %04X:\n", page);
-	for(uint16_t i = page; i < (page + 0x3C); i++, j++)
+	for(uint16_t i = page; i < (page + 0xFF); i++, j++)
 		printf("%02X %s", mem.ram[i], (j % 0xF) ? "" : "\n");
+
+	putchar('\n');
+}
+
+void MEM_dump_last_six(void) {
+	printf("Last six:\n");
+	for(size_t i = 0xFFFA; i <= 0xFFFF; i++)
+		printf("%02X ", mem.ram[i]);
 
 	putchar('\n');
 }
@@ -187,11 +224,23 @@ uint8_t ABS(void) {
 }
 
 uint8_t ABX(void) {
-	return 0;
+	uint16_t lo = MEM_read(cpu.pc++);
+	uint16_t hi = MEM_read(cpu.pc++);
+
+	addr_abs = (hi << 8) | lo;
+	addr_abs += cpu.x;
+
+	return ((addr_abs & 0x00FF) != (hi << 8)) ? 1 : 0;
 }
 
 uint8_t ABY(void) {
-	return 0;
+	uint16_t lo = MEM_read(cpu.pc++);
+	uint16_t hi = MEM_read(cpu.pc++);
+
+	addr_abs = (hi << 8) | lo;
+	addr_abs += cpu.y;
+
+	return ((addr_abs & 0x00FF) != (hi << 8)) ? 1 : 0;
 }
 
 uint8_t IMM(void) {
@@ -205,15 +254,46 @@ uint8_t IMP(void) {
 }
 
 uint8_t IND(void) {
+	/* get a direction from memory */
+	uint16_t lo = MEM_read(cpu.pc++);
+	uint16_t hi = MEM_read(cpu.pc++);
+
+	/* assign the direction to ptr */
+	uint16_t ptr = (hi << 8) | lo;
+
+	/* get the address contained in the address stored in ptr
+	 * and simulate page boundary hardware bug */
+	addr_abs = (MEM_read((ptr + (lo == 0x00FF) ? 1 : 0) & 0xFF00) << 8) | MEM_read(ptr);
+
 	return 0;
 }
 
 uint8_t IZX(void) {
+	uint8_t addr = MEM_read(cpu.pc++);
+
+	/* get a direction from memory */
+	uint16_t lo = MEM_read((addr + cpu.x + 0) & 0xFF);
+	uint16_t hi = MEM_read((addr + cpu.x + 1) & 0xFF);
+
+	uint16_t ptr = (hi << 8) | lo;
+
+	/* get the direction contained on the memory that we read */
+	addr_abs = (MEM_read(ptr + 1) << 8) | MEM_read(ptr + 0);
+
 	return 0;
 }
 
 uint8_t IZY(void) {
-	return 0;
+	uint8_t addr = MEM_read(cpu.pc++);
+
+	/* get a direction from memory */
+	uint16_t lo = MEM_read((addr + 0) & 0xFF);
+	uint16_t hi = MEM_read((addr + 1) & 0xFF);
+
+	addr_abs = (hi << 8) | lo;
+	addr_abs += cpu.y;
+
+	return ((addr_abs & 0xFF00) != (hi << 8)) ? 1 : 0;
 }
 
 uint8_t REL(void) {
@@ -225,15 +305,27 @@ uint8_t REL(void) {
 	return 0;
 }
 
+/* read only the offset of the zero page */
 uint8_t ZP0(void) {
+	addr_abs = MEM_read(cpu.pc++);
+	addr_abs &= 0xFF;
+
 	return 0;
 }
 
 uint8_t ZPX(void) {
+	addr_abs = MEM_read(cpu.pc + cpu.x);
+	addr_abs &= 0xFF;
+	cpu.pc++;
+
 	return 0;
 }
 
 uint8_t ZPY(void) {
+	addr_abs = MEM_read(cpu.pc + cpu.y);
+	addr_abs &= 0xFF;
+	cpu.pc++;
+
 	return 0;
 }
 
@@ -354,6 +446,10 @@ uint8_t BPL(void) {
 }
 
 uint8_t BRK(void) {
+	CPU_set_flag(B, 1);
+
+	printf("break arrived\n");
+	CPU_irq();
 
 	return 0;
 }
@@ -563,6 +659,15 @@ uint8_t ROR(void) {
 }
 
 uint8_t RTI(void) {
+	/* restore cpu status register and increase stack pointer */
+	cpu.st = MEM_read(0x100 + ++cpu.sp);
+
+	/* cpu.st &= ~ST_FLAG_MASK[B]; */
+	CPU_set_flag(B, 0);
+
+	cpu.pc = MEM_read(0x100 + ++cpu.sp);
+	cpu.pc |= (MEM_read(0x100 + ++cpu.sp) << 8);
+
 	return 0;
 }
 
