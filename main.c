@@ -1,8 +1,10 @@
 #include "6502.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 
-#define INPUT_FILE_PATH	"10times3.bin"
+/* #define INPUT_FILE_PATH	"10times3.bin" */
+#define INPUT_FILE_PATH	"6502_functional_test.bin"
 
 /* TODO: Finish with CPU instructions implementation */
 /* TODO: add support for command line arguments */
@@ -14,27 +16,31 @@ int main (void) {
 	/* Initialize memory to 0 */
 	MEM_init();
 
+	/* set the first address that the pc should be set to */
+	MEM_set_pc_start(0x0400);
+
 	/* Load program to memory */
 	MEM_load_from_file(INPUT_FILE_PATH);
 
-	/* Initialize registers to 0 */
+	/* Initialize cpu registers to 0 */
 	CPU_init();
+
 	CPU_reset();
 
 	do {
+		system("clear");
 		/* Fetch an instruction and increment pc */
 		CPU_fetch(&ins);
 
 		CPU_dump();
-
+		MEM_dump_last_six();
 		MEM_dump_page(0x0000);
 		MEM_dump_page(0x0100);
-		MEM_dump_last_six();
 
 		/* Execute instruction */
 		CPU_exec(ins);
-
-	} while(getchar() != 'q');
+	} while(1);
+	/* } while(getchar() != 'q'); */
 
 	return 0;
 }
