@@ -2,6 +2,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdbool.h>
 
 /* #define INPUT_FILE_PATH	"10times3.bin" */
 #define INPUT_FILE_PATH	"6502_functional_test.bin"
@@ -9,6 +10,15 @@
 /* TODO: Finish with CPU instructions implementation */
 /* TODO: add support for command line arguments */
 /* TODO: add proper system monitor (memory dump, cpu registers) */
+
+static bool brk = false;
+
+void CPU_brk(uint16_t pc) {
+	if(CPU_get_pc() == pc) {
+		brk = true;
+	}
+}
+
 
 int main (void) {
 	INS ins;
@@ -28,19 +38,20 @@ int main (void) {
 	CPU_reset();
 
 	do {
-		system("clear");
 		/* Fetch an instruction and increment pc */
 		CPU_fetch(&ins);
 
 		CPU_dump();
 		MEM_dump_last_six();
-		MEM_dump_page(0x0000);
-		MEM_dump_page(0x0100);
+		/* MEM_dump_page(0x0000); */
+		/* MEM_dump_page(0x0100); */
 
 		/* Execute instruction */
-		CPU_exec(ins);
-	} while(1);
-	/* } while(getchar() != 'q'); */
+		if(CPU_exec(ins) != 0) return 1;
+
+		CPU_brk(0x22D8);
+		printf("--------------------------------------------\n");
+	} while(brk ? (getchar() != 'q') : true);
 
 	return 0;
 }

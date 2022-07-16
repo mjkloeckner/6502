@@ -39,7 +39,8 @@ typedef enum {
 void CPU_init(void);
 void CPU_reset(void);
 void CPU_fetch(INS *ins);
-void CPU_exec(INS ins);
+uint8_t CPU_exec(INS ins);
+
 void CPU_irq(void);
 void CPU_nm_irq(void);
 void CPU_set_flag(ST_FLAG flag, uint8_t val);
@@ -47,6 +48,12 @@ uint8_t CPU_get_flag(ST_FLAG flag);
 
 void CPU_dump(void);
 char *CPU_mode_name(uint8_t (*mode)(void));
+uint16_t CPU_get_pc(void);
+
+/* This should not be called from outside of file 6502.c */
+void CPU_branch(void);
+void print_reg(uint8_t);
+
 
 
 void MEM_init(void);

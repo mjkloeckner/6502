@@ -2,6 +2,10 @@
 
 #include <stdio.h>
 
+/* included for debugging purposes */
+#include <unistd.h>
+#include <string.h>
+
 static CPU cpu;
 static MEM mem; /* 8 bit word */
 
@@ -33,32 +37,27 @@ void CPU_init(void) {
 }
 
 void CPU_reset(void) {
+	cpu.sp = 0xFF;
+	cpu.st = 0x00;
+
+	/* little endian */
+	printf("pc: 0x%4X%4X\n", MEM_read(0xFFFD), MEM_read(0xFFFC));
+	uint16_t lo = MEM_read(0xFFFC);
+	uint16_t hi = MEM_read(0xFFFD);
+
+	cpu.pc = (hi << 8) | lo;
+
+	addr_abs = addr_rel = opc = 0x0000;
+
 	/* simulate 8 cycles needed to reset the cpu */
-	do {
-		if(cyc == 0) {
-			cpu.sp = 0xFF;	 /* first page */
-			cpu.st = 0x00 | ST_FLAG_MASK[U];
-
-			/* little endian */
-			printf("pc: 0x%4X%4X\n", MEM_read(0xFFFD), MEM_read(0xFFFC));
-			uint16_t lo = MEM_read(0xFFFC);
-			uint16_t hi = MEM_read(0xFFFD);
-
-			cpu.pc = (hi << 8) | lo;
-
-			addr_abs = addr_rel = opc = 0x0000;
-
-			cyc = 8;
-		}
-		cyc--;
-	} while(cyc != 0);
+	cyc = 8;
 }
 
 void CPU_fetch(INS *ins) {
 	*ins = decode[opc = MEM_read(cpu.pc)];
 }
 
-void CPU_exec(INS ins) {
+uint8_t CPU_exec(INS ins) {
 	/* simulate instructions cycles */
     do {
         if(cyc == 0) {
@@ -66,44 +65,47 @@ void CPU_exec(INS ins) {
 
 			cyc = ins.cycles;
 
+			if(!strcmp(ins.name, "???")) return 1;
 			uint8_t add_cyc_0 = ins.mode();
 			uint8_t add_cyc_1 = ins.op();
 
 			cyc += add_cyc_0 & add_cyc_1;
         }
-		cyc--;
-    } while(cyc != 0);
+    } while(--cyc);
+
+	return 0;
 }
 
 /* interrupt request */
 void CPU_irq(void) {
 	if(!CPU_get_flag(I)) {
-		/* requires two writes since `sp` is 8bits */
-		MEM_write(0x100 + cpu.sp--, (cpu.pc & 0xFF00) >> 8);
+		/* save pc */
+		MEM_write(0x100 + cpu.sp--, (cpu.pc >> 8) & 0x00FF);
 		MEM_write(0x100 + cpu.sp--, cpu.pc & 0x00FF);
 
-		MEM_write(0x100 + cpu.sp--, cpu.st);
+		/* save st */
+		MEM_write(0x100 + cpu.sp--, cpu.st | (1 << 4) | (1 << 5));
+
 		CPU_set_flag(I, 1);
 
-		addr_abs = 0xFFFE;
-		uint16_t lo = MEM_read(addr_abs + 0);
-		uint16_t hi = MEM_read(addr_abs + 1);
+		uint16_t lo = MEM_read(0xFFFE);
+		uint16_t hi = MEM_read(0xFFFF);
 
-		cpu.pc = (hi << 8) | lo;
+		cpu.pc = ((hi << 8) & 0xFF00) | (lo & 0x00FF);
 
-		cyc = 7;
+		cyc = 8;
 	}
 }
 
 /* non maskeable interrupt request */
 void CPU_nm_irq(void) {
-	/* requires two writes since `sp` is 8bits */
+	/* save program counter to stack */
 	MEM_write(0x100 + cpu.sp--, (cpu.pc >> 8) & 0x00FF);
 	MEM_write(0x100 + cpu.sp--, cpu.pc & 0x00FF);
 
-	CPU_set_flag(B, 0);
+	/* save cpu status to stack */
+	MEM_write(0x100 + cpu.sp--, cpu.st | (1 << 4) | (1 << 5));
 	CPU_set_flag(I, 1);
-	MEM_write(0x100 + cpu.sp--, cpu.st);
 
 	addr_abs = 0xFFFA;
 	uint16_t lo = MEM_read(addr_abs + 0);
@@ -112,6 +114,17 @@ void CPU_nm_irq(void) {
 	cpu.pc = (hi << 8) | lo;
 
 	cyc = 8;
+}
+
+void CPU_branch(void) {
+	cyc++;
+	addr_abs = cpu.pc + addr_rel;
+
+	/* if address changes page */
+	if((addr_abs & 0xFF00) != (cpu.pc & 0xFF00))
+		cyc++;
+
+	cpu.pc = addr_abs;
 }
 
 void CPU_set_flag(ST_FLAG flag, uint8_t val) {
@@ -141,6 +154,10 @@ void CPU_dump(void) {
 	printf("   pc: %04X -> %02X (%s)(%s)\n\n", cpu.pc, mem.ram[cpu.pc], aux.name, CPU_mode_name(aux.mode));
 }
 
+uint16_t CPU_get_pc(void) {
+	return cpu.pc;
+}
+
 /* Memory methods */
 void MEM_init(void) {
 	for(uint16_t i = 0; i < 0xFFFF; i++)
@@ -148,11 +165,9 @@ void MEM_init(void) {
 }
 
 void MEM_set_pc_start(uint16_t addr) {
-	/* First address that pc reads */
 	mem.ram[0xFFFC] = (addr & 0x00FF);
 	mem.ram[0xFFFD] = ((addr & 0xFF00) >> 8);
 }
-
 
 void MEM_load_from_file(char *path) {
 	FILE *fp;
@@ -162,9 +177,7 @@ void MEM_load_from_file(char *path) {
 	fp = fopen(path, "rb");
 	if(fp == NULL) return;
 
-	printf("Loading %ld bytes from file `%s`\n", sizeof(mem.ram), path);
 	fread(mem.ram, 1, sizeof(mem.ram), fp);
-	printf("Loading done\n");
 	/* fread(mem.ram + 0x8000, 1, 0x7FFF - 0x6, fp); */
 
 	fclose(fp);
@@ -190,7 +203,7 @@ void MEM_dump_page(uint16_t page) {
 	uint16_t j = 1;
 
 	printf("Page %04X:\n", page);
-	for(uint16_t i = page; i < (page + 0xFF); i++, j++)
+	for(uint16_t i = page; i <= (page + 0xFF); i++, j++)
 		printf("%02X %s", mem.ram[i], (j % 0x1E) ? "" : "\n");
 
 	putchar('\n');
@@ -235,6 +248,9 @@ uint8_t ABX(void) {
 	uint16_t hi = MEM_read(cpu.pc++);
 
 	addr_abs = (hi << 8) | lo;
+
+	printf("address fetched: %04X\nx register: %02X\nend address: %04X (%02X)\n", addr_abs, cpu.x, addr_abs + cpu.x, MEM_read(addr_abs + cpu.x));
+
 	addr_abs += cpu.x;
 
 	return ((addr_abs & 0x00FF) != (hi << 8)) ? 1 : 0;
@@ -245,8 +261,10 @@ uint8_t ABY(void) {
 	uint16_t hi = MEM_read(cpu.pc++);
 
 	addr_abs = (hi << 8) | lo;
-	addr_abs += cpu.y;
 
+	printf("address fetched: %04X\ny register: %02X\nend address: %04X (%02X)\n", addr_abs, cpu.y, addr_abs + cpu.y, MEM_read(addr_abs + cpu.y));
+
+	addr_abs += cpu.y;
 	return ((addr_abs & 0x00FF) != (hi << 8)) ? 1 : 0;
 }
 
@@ -266,11 +284,11 @@ uint8_t IND(void) {
 	uint16_t hi = MEM_read(cpu.pc++);
 
 	/* assign the direction to ptr */
-	uint16_t ptr = (hi << 8) | lo;
+	uint16_t p = (hi << 8) | lo;
 
-	/* get the address pointed by ptr
+	/* get the address pointed by p
 	 * and simulate page boundary hardware bug */
-	addr_abs = (MEM_read((ptr + (lo == 0x00FF) ? 1 : 0) & 0xFF00) << 8) | MEM_read(ptr);
+	addr_abs = (MEM_read((lo == 0xFF) ? (p & 0xFF00) : p + 1) << 8) | MEM_read(p);
 
 	return 0;
 }
@@ -279,13 +297,10 @@ uint8_t IZX(void) {
 	uint8_t addr = MEM_read(cpu.pc++);
 
 	/* get a direction from memory */
-	uint16_t lo = MEM_read((addr + cpu.x + 0) & 0xFF);
+	uint16_t lo = MEM_read((addr + cpu.x) & 0xFF);
 	uint16_t hi = MEM_read((addr + cpu.x + 1) & 0xFF);
 
-	uint16_t ptr = (hi << 8) | lo;
-
-	/* get the direction contained on the memory that we read */
-	addr_abs = (MEM_read(ptr + 1) << 8) | MEM_read(ptr + 0);
+	addr_abs = ((hi << 8) & 0xFF00) | lo;
 
 	return 0;
 }
@@ -294,10 +309,10 @@ uint8_t IZY(void) {
 	uint8_t addr = MEM_read(cpu.pc++);
 
 	/* get a direction from memory */
-	uint16_t lo = MEM_read((addr + 0) & 0xFF);
-	uint16_t hi = MEM_read((addr + 1) & 0xFF);
+	uint16_t lo = MEM_read(addr);
+	uint16_t hi = MEM_read(addr + 1);
 
-	addr_abs = (hi << 8) | lo;
+	addr_abs = ((hi << 8) & 0xFF00) | lo;
 	addr_abs += cpu.y;
 
 	return ((addr_abs & 0xFF00) != (hi << 8)) ? 1 : 0;
@@ -315,23 +330,18 @@ uint8_t REL(void) {
 /* read only the offset of the zero page */
 uint8_t ZP0(void) {
 	addr_abs = MEM_read(cpu.pc++);
-	addr_abs &= 0xFF;
 
 	return 0;
 }
 
 uint8_t ZPX(void) {
-	addr_abs = MEM_read(cpu.pc + cpu.x);
-	addr_abs &= 0xFF;
-	cpu.pc++;
+	addr_abs = (MEM_read(cpu.pc++) + cpu.x) & 0x00FF;
 
 	return 0;
 }
 
 uint8_t ZPY(void) {
-	addr_abs = MEM_read(cpu.pc + cpu.y);
-	addr_abs &= 0xFF;
-	cpu.pc++;
+	addr_abs = (MEM_read(cpu.pc++) + cpu.y) & 0x00FF;
 
 	return 0;
 }
@@ -377,139 +387,84 @@ uint8_t ASL(void) {
 }
 
 uint8_t BCC(void) {
-	if(!CPU_get_flag(C)) {
-		cyc++;
-		addr_abs = cpu.pc + addr_rel;
-
-		/* if address changes page */
-		if((addr_abs & 0xFF00) != (cpu.pc & 0xFF00))
-			cyc++;
-
-		cpu.pc = addr_abs;
-	}
+	if(!CPU_get_flag(C))
+		CPU_branch();
 
 	return 0;
 }
 
 uint8_t BCS(void) {
-	if(CPU_get_flag(C)) {
-		cyc++;
-		addr_abs = cpu.pc + addr_rel;
-
-		/* if address changes page */
-		if((addr_abs & 0xFF00) != (cpu.pc & 0xFF00))
-			cyc++;
-
-		cpu.pc = addr_abs;
-	}
+	if(CPU_get_flag(C))
+		CPU_branch();
 
 	return 0;
 }
 
 uint8_t BEQ(void) {
-	if(CPU_get_flag(Z)) {
-		cyc++;
-		addr_abs = cpu.pc + addr_rel;
-
-		/* if address changes page */
-		if((addr_abs & 0xFF00) != (cpu.pc & 0xFF00))
-			cyc++;
-
-		cpu.pc = addr_abs;
-	}
+	if(CPU_get_flag(Z))
+		CPU_branch();
 
 	return 0;
 }
 
 uint8_t BIT(void) {
-	tmp = cpu.ac & MEM_read(cpu.pc);
+	tmp = (MEM_read(addr_abs) & 0x00FF);
 
-	CPU_set_flag(Z, tmp == 0);
-	CPU_set_flag(N, tmp & (1 << 7));
+	CPU_set_flag(Z, (cpu.ac & tmp) == 0);
 	CPU_set_flag(V, tmp & (1 << 6));
+	CPU_set_flag(N, tmp & (1 << 7));
 
 	return 0;
 }
 
 uint8_t BMI(void) {
-	if(CPU_get_flag(N)) {
-		cyc++;
-		addr_abs = cpu.pc + addr_rel;
-
-		/* if address changes page */
-		if((addr_abs & 0xFF00) != (cpu.pc & 0xFF00))
-			cyc++;
-
-		cpu.pc = addr_abs;
-	}
+	if(CPU_get_flag(N))
+		CPU_branch();
 
 	return 0;
 }
 
 uint8_t BNE(void) {
-	if(!CPU_get_flag(Z)) {
-		cyc++;
-		addr_abs = cpu.pc + addr_rel;
-
-		/* if address changes page */
-		if((addr_abs & 0xFF00) != (cpu.pc & 0xFF00))
-			cyc++;
-
-		cpu.pc = addr_abs;
-	}
+	if(!CPU_get_flag(Z))
+		CPU_branch();
 
 	return 0;
 }
 
 uint8_t BPL(void) {
-	if(CPU_get_flag(N) == 0) {
-		cyc++;
-		addr_abs = cpu.pc + addr_rel;
-
-		/* if address changes page */
-		if((addr_abs & 0xFF00) != (cpu.pc & 0xFF00))
-			cyc++;
-
-		cpu.pc = addr_abs;
-	}
+	if(!CPU_get_flag(N))
+		CPU_branch();
 
 	return 0;
 }
 
 uint8_t BRK(void) {
-	CPU_irq();
+	/* save program counter to stack */
+	MEM_write(0x100 + cpu.sp--, (cpu.pc >> 8) & 0x00FF);
+	MEM_write(0x100 + cpu.sp--, cpu.pc & 0x00FF);
 
-	CPU_set_flag(B, 1);
+	/* save cpu status to stack */
+	MEM_write(0x100 + cpu.sp--, cpu.st | (1 << 4) | (1 << 5));
+	CPU_set_flag(I, 1);
+
+	uint16_t lo = MEM_read(0xFFFE);
+	uint16_t hi = MEM_read(0xFFFF);
+
+	cpu.pc = (hi << 8) | lo;
 
 	return 0;
 }
 
 uint8_t BVC(void) {
-	if(!CPU_get_flag(V)) {
-		cyc++;
-		addr_abs = cpu.pc + addr_rel;
-
-		/* if address changes page */
-		if((addr_abs & 0xFF00) != (cpu.pc & 0xFF00))
-			cyc++;
-
-		cpu.pc = addr_abs;
-	}
+	if(!CPU_get_flag(V))
+		CPU_branch();
 
 	return 0;
 }
 
 uint8_t BVS(void) {
-	if(CPU_get_flag(V)) {
-		cyc++;
-		addr_abs = cpu.pc + addr_rel;
-
-		/* if address changes page */
-		if((addr_abs & 0xFF00) != (cpu.pc & 0xFF00))
-			cyc++;
-
-		cpu.pc = addr_abs;
-	}
+	if(CPU_get_flag(V))
+		CPU_branch();
 
 	return 0;
 }
@@ -535,31 +490,33 @@ uint8_t CLV(void) {
 }
 
 uint8_t CMP(void) {
-	tmp = MEM_read(addr_abs);
+	tmp = (MEM_read(addr_abs) & 0x00FF);
+
+	printf("cmp: %d, acc: %d\n", tmp, cpu.ac);
 
 	CPU_set_flag(C, cpu.ac >= tmp);
 	CPU_set_flag(Z, cpu.ac == tmp);
-	CPU_set_flag(N, cpu.ac & (1<<7));
+	CPU_set_flag(N, (cpu.ac - tmp) & (1<<7));
 
 	return 0;
 }
 
 uint8_t CPX(void) {
-	tmp = MEM_read(addr_abs);
+	tmp = (MEM_read(addr_abs) & 0x00FF);
 
 	CPU_set_flag(C, cpu.x >= tmp);
 	CPU_set_flag(Z, cpu.x == tmp);
-	CPU_set_flag(N, cpu.x & (1<<7));
+	CPU_set_flag(N, (cpu.x - tmp) & (1<<7));
 
 	return 0;
 }
 
 uint8_t CPY(void) {
-	tmp = MEM_read(addr_abs);
+	tmp = (MEM_read(addr_abs) & 0x00FF);
 
 	CPU_set_flag(C, cpu.y >= tmp);
 	CPU_set_flag(Z, cpu.y == tmp);
-	CPU_set_flag(N, cpu.y & (1<<7));
+	CPU_set_flag(N, (cpu.y - tmp) & (1<<7));
 
 	return 0;
 }
@@ -604,7 +561,7 @@ uint8_t EOR(void) {
 }
 
 uint8_t INC(void) {
-	tmp = MEM_read(addr_abs + 1);
+	tmp = MEM_read(addr_abs) + 1;
 
 	MEM_write(addr_abs, tmp);
 
@@ -710,7 +667,7 @@ uint8_t PHA(void) {
 }
 
 uint8_t PHP(void) {
-	MEM_write(0x100 + cpu.sp--, cpu.st);
+	MEM_write(0x100 + cpu.sp--, cpu.st | (1 << 4) | (1 << 5));
 
 	return 0;
 }
@@ -725,7 +682,15 @@ uint8_t PLA(void) {
 }
 
 uint8_t PLP(void) {
+	uint8_t B_is_set = CPU_get_flag(B);
+	uint8_t U_is_set = CPU_get_flag(U);
+
+	/* restore status */
 	cpu.st = MEM_read(0x100 + ++cpu.sp);
+
+	/* This two flags stay the same as before */
+	CPU_set_flag(B, B_is_set);
+	CPU_set_flag(U, U_is_set);
 
 	return 0;
 }
@@ -763,9 +728,17 @@ uint8_t ROR(void) {
 }
 
 uint8_t RTI(void) {
-	/* restore cpu status register and increase stack pointer */
+	uint8_t B_is_set = CPU_get_flag(B);
+	uint8_t U_is_set = CPU_get_flag(U);
+
+	/* restore status */
 	cpu.st = MEM_read(0x100 + ++cpu.sp);
 
+	/* This two flags stay the same as before */
+	CPU_set_flag(B, B_is_set);
+	CPU_set_flag(U, U_is_set);
+
+	/* restore pc */
 	cpu.pc = MEM_read(0x100 + ++cpu.sp);
 	cpu.pc |= (MEM_read(0x100 + ++cpu.sp) << 8);
 
@@ -775,6 +748,8 @@ uint8_t RTI(void) {
 uint8_t RTS(void) {
 	cpu.pc = MEM_read(0x100 + ++cpu.sp);
 	cpu.pc |= (MEM_read(0x100 + ++cpu.sp) << 8);
+
+	CPU_set_flag(B, 0);
 
 	cpu.pc++;
 
@@ -870,8 +845,8 @@ uint8_t TXS(void) {
 uint8_t TYA(void) {
 	cpu.ac = cpu.y;
 
-	CPU_set_flag(Z, cpu.y == 0);
-	CPU_set_flag(N, cpu.y & (1 << 7));
+	CPU_set_flag(Z, cpu.ac == 0);
+	CPU_set_flag(N, cpu.ac & (1 << 7));
 
 	return 0;
 }
