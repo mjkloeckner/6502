@@ -1,8 +1,7 @@
 CC := gcc
 CLIBS :=
 CFLAGS := -Wall -Wshadow -pedantic -ansi -std=c99 -O3
-# SRCS := $(wildcard *.c)
-SRCS := $(shell find ./ ! -name "shift.c" -name "*.c")
+SRCS := $(wildcard *.c)
 OBJS := $(SRCS:.c=.o)
 
 TARGET := 6502
