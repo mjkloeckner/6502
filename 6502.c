@@ -3,7 +3,6 @@
 #include <stdio.h>
 
 /* included for debugging purposes */
-#include <unistd.h>
 #include <string.h>
 
 static CPU cpu;
@@ -12,28 +11,18 @@ static MEM mem; /* 8 bit word */
 static uint8_t cyc;
 static uint8_t opc;
 
-static uint16_t   tmp;
+static uint16_t  tmp;
 static uint16_t  addr_abs;
 static uint16_t  addr_rel;
 
 INS decode[0x100];
-
-static uint8_t ST_FLAG_MASK[] = {
-	(1 << 0),    /* Carry */
-	(1 << 1),    /* Zero  */
-	(1 << 2),    /* Disable interrupts  */
-	(1 << 3),    /* Decimal mode  */
-	(1 << 4),    /* Break */
-	(1 << 5),    /* Unused */
-	(1 << 6),    /* Overflow */
-	(1 << 7)     /* Negative */
-};
-
+static INS prev_ins;
 
 /* Cpu methods */
 void CPU_init(void) {
 	cpu.ac = cpu.x = cpu.y = cpu.sp = cpu.st = 0;
 	cyc = opc = tmp = 0;
+	prev_ins = (INS) {"???", &NUL, &IMP, 7};
 }
 
 void CPU_reset(void) {
@@ -41,7 +30,6 @@ void CPU_reset(void) {
 	cpu.st = 0x00;
 
 	/* little endian */
-	printf("pc: 0x%4X%4X\n", MEM_read(0xFFFD), MEM_read(0xFFFC));
 	uint16_t lo = MEM_read(0xFFFC);
 	uint16_t hi = MEM_read(0xFFFD);
 
@@ -60,15 +48,22 @@ void CPU_fetch(INS *ins) {
 uint8_t CPU_exec(INS ins) {
 	/* simulate instructions cycles */
     do {
-        if(cyc == 0) {
-			cpu.pc++;
+        if (cyc == 0) {
+			if (!strcmp(ins.name, "???")) {
+				printf("EXEC: invalid instruction reached\n");
+				return 1;
+			} else if (!strcmp(ins.name, "BNE") && !(strcmp(prev_ins.name, "BNE"))) {
+				printf("EXEC: consecutive BNE reached\n");
+				return 1;
+			}
 
+			cpu.pc++;
 			cyc = ins.cycles;
 
-			if(!strcmp(ins.name, "???")) return 1;
 			uint8_t add_cyc_0 = ins.mode();
 			uint8_t add_cyc_1 = ins.op();
 
+			prev_ins = ins;
 			cyc += add_cyc_0 & add_cyc_1;
         }
     } while(--cyc);
@@ -128,11 +123,11 @@ void CPU_branch(void) {
 }
 
 void CPU_set_flag(ST_FLAG flag, uint8_t val) {
-	cpu.st = val ? cpu.st | ST_FLAG_MASK[flag] : cpu.st & ~(ST_FLAG_MASK[flag]);
+	cpu.st = val ? cpu.st | (1 << flag) : cpu.st & ~(1 << flag);
 }
 
 uint8_t CPU_get_flag(ST_FLAG flag) {
-	return ((cpu.st & ST_FLAG_MASK[flag]) >> flag);
+	return (cpu.st & (1 << flag)) >> flag;
 }
 
 void print_reg(uint8_t reg) {
@@ -151,7 +146,8 @@ void CPU_dump(void) {
 	print_reg(cpu.st);
 	printf("    y:   %02X (%3d)\n", cpu.y, cpu.y);
 	printf("   sp:   %02X\n", cpu.sp);
-	printf("   pc: %04X -> %02X (%s)(%s)\n\n", cpu.pc, mem.ram[cpu.pc], aux.name, CPU_mode_name(aux.mode));
+	printf("   pc: %04X -> %02X (%s)(%s)\n", cpu.pc, mem.ram[cpu.pc], aux.name, CPU_mode_name(aux.mode));
+	printf("--------------------------------------------\n");
 }
 
 uint16_t CPU_get_pc(void) {
@@ -189,7 +185,7 @@ uint8_t MEM_read(uint16_t addr) {
 
 uint8_t MEM_write(uint16_t addr, uint8_t val) {
 	mem.ram[addr] = val;
-	return 0;
+	return val;
 }
 
 void MEM_dump() {
@@ -240,6 +236,8 @@ uint8_t ABS(void) {
 	uint16_t hi = MEM_read(cpu.pc++);
 
 	addr_abs = (hi << 8) | lo;
+
+	printf("Address: %04X -> (%02X)\n", addr_abs, MEM_read(addr_abs));
 	return 0;
 }
 
@@ -252,6 +250,7 @@ uint8_t ABX(void) {
 	printf("address fetched: %04X\nx register: %02X\nend address: %04X (%02X)\n", addr_abs, cpu.x, addr_abs + cpu.x, MEM_read(addr_abs + cpu.x));
 
 	addr_abs += cpu.x;
+	printf("Address: %04X -> (%02X)\n", addr_abs, MEM_read(addr_abs));
 
 	return ((addr_abs & 0x00FF) != (hi << 8)) ? 1 : 0;
 }
@@ -265,11 +264,13 @@ uint8_t ABY(void) {
 	printf("address fetched: %04X\ny register: %02X\nend address: %04X (%02X)\n", addr_abs, cpu.y, addr_abs + cpu.y, MEM_read(addr_abs + cpu.y));
 
 	addr_abs += cpu.y;
+	printf("Address: %04X -> (%02X)\n", addr_abs, MEM_read(addr_abs));
 	return ((addr_abs & 0x00FF) != (hi << 8)) ? 1 : 0;
 }
 
 uint8_t IMM(void) {
 	addr_abs = cpu.pc++;
+	printf("Address: %04X -> (%02X)\n", addr_abs, MEM_read(addr_abs));
 	return 0;
 }
 
@@ -290,6 +291,7 @@ uint8_t IND(void) {
 	 * and simulate page boundary hardware bug */
 	addr_abs = (MEM_read((lo == 0xFF) ? (p & 0xFF00) : p + 1) << 8) | MEM_read(p);
 
+	printf("Address: %04X -> (%02X)\n", addr_abs, MEM_read(addr_abs));
 	return 0;
 }
 
@@ -301,6 +303,8 @@ uint8_t IZX(void) {
 	uint16_t hi = MEM_read((addr + cpu.x + 1) & 0xFF);
 
 	addr_abs = ((hi << 8) & 0xFF00) | lo;
+
+	printf("Address: %04X -> (%02X)\n", addr_abs, MEM_read(addr_abs));
 
 	return 0;
 }
@@ -315,13 +319,17 @@ uint8_t IZY(void) {
 	addr_abs = ((hi << 8) & 0xFF00) | lo;
 	addr_abs += cpu.y;
 
+	printf("Address: %04X -> (%02X)\n", addr_abs, MEM_read(addr_abs));
+
 	return ((addr_abs & 0xFF00) != (hi << 8)) ? 1 : 0;
 }
 
 uint8_t REL(void) {
-	addr_rel = MEM_read(cpu.pc++);
+	addr_rel = (MEM_read(cpu.pc++) & 0x00FF);
+	printf("REL: offset: %02X (%d)\n", addr_rel, (int8_t)addr_rel);
 
-    if(addr_rel & (1 << 7))
+	/* signed byte */
+    if (addr_rel & (1 << 7))
 		addr_rel |= 0xFF00;
 
 	return 0;
@@ -329,20 +337,23 @@ uint8_t REL(void) {
 
 /* read only the offset of the zero page */
 uint8_t ZP0(void) {
-	addr_abs = MEM_read(cpu.pc++);
+	addr_abs = (MEM_read(cpu.pc++) & 0x00FF);
 
+	printf("Address: %04X -> (%02X)\n", addr_abs, MEM_read(addr_abs));
 	return 0;
 }
 
 uint8_t ZPX(void) {
 	addr_abs = (MEM_read(cpu.pc++) + cpu.x) & 0x00FF;
 
+	printf("Address: %04X -> (%02X)\n", addr_abs, MEM_read(addr_abs));
 	return 0;
 }
 
 uint8_t ZPY(void) {
 	addr_abs = (MEM_read(cpu.pc++) + cpu.y) & 0x00FF;
 
+	printf("Address: %04X -> (%02X)\n", addr_abs, MEM_read(addr_abs));
 	return 0;
 }
 
@@ -355,7 +366,7 @@ uint8_t ADC(void) {
 	CPU_set_flag(N, res & (1 << 7));
 	CPU_set_flag(Z, (res & 0x00FF) == 0);
 	CPU_set_flag(C, ((res & 0xFF00) >> 7));
-	CPU_set_flag(V, ((cpu.ac ^ res) & ~(res ^ data)) & (1 << 7));
+	CPU_set_flag(V, ((cpu.ac^res) & ~(cpu.ac^data)) & (1 << 7));
 
 	cpu.ac = (uint8_t)(res & 0x00FF);
 
@@ -372,16 +383,19 @@ uint8_t AND(void) {
 }
 
 uint8_t ASL(void) {
-	tmp = (cpu.ac <<= 1);
+	if(decode[opc].mode == &IMP) {
+		tmp = cpu.ac << 1;
+		CPU_set_flag(C, (cpu.ac & (1 << 7)));
+		cpu.ac = (tmp & 0x00FF);
+	}
+	else {
+		tmp = MEM_read(addr_abs) << 1;
+		CPU_set_flag(C, MEM_read(addr_abs) & (1 << 7));
+		MEM_write(addr_abs, tmp & 0x00FF);
+	}
 
-	CPU_set_flag(C, (tmp & (1 << 8)) != 0);
 	CPU_set_flag(Z, tmp == 0);
 	CPU_set_flag(N, tmp & (1 << 7));
-
-	if(decode[opc].mode == &IMP)
-		cpu.ac = (tmp & 0x00FF);
-	else
-		MEM_write(addr_abs, tmp & 0x00FF);
 
 	return 0;
 }
@@ -522,11 +536,10 @@ uint8_t CPY(void) {
 }
 
 uint8_t DEC(void) {
-	tmp = (MEM_read(addr_abs) - 1) & 0xFF;
-	MEM_write(addr_abs, tmp);
+	tmp = MEM_write(addr_abs, MEM_read(addr_abs) - 1) & 0x00FF;
 
 	CPU_set_flag(Z, tmp == 0);
-	CPU_set_flag(N, tmp & 0xFF);
+	CPU_set_flag(N, tmp & (1 << 7));
 
 	return 0;
 }
@@ -561,9 +574,7 @@ uint8_t EOR(void) {
 }
 
 uint8_t INC(void) {
-	tmp = MEM_read(addr_abs) + 1;
-
-	MEM_write(addr_abs, tmp);
+	tmp = MEM_write(addr_abs, MEM_read(addr_abs) + 1) & 0x00FF;
 
 	CPU_set_flag(Z, tmp == 0);
 	CPU_set_flag(N, tmp & (1 << 7));
@@ -633,16 +644,19 @@ uint8_t LDY(void) {
 }
 
 uint8_t LSR(void) {
-	tmp = (cpu.ac >>= 1);
+	if(decode[opc].mode == &IMP) {
+		tmp = (cpu.ac >> 1);
+		CPU_set_flag(C, cpu.ac & 0x01);
+		cpu.ac = (tmp & 0x00FF);
+	}
+	else {
+		tmp = (MEM_read(addr_abs) >> 1);
+		CPU_set_flag(C, MEM_read(addr_abs) & 0x01);
+		MEM_write(addr_abs, tmp & 0x00FF);
+	}
 
-	CPU_set_flag(C, (tmp & (1 << 8)) != 0);
 	CPU_set_flag(Z, tmp == 0);
 	CPU_set_flag(N, tmp & (1 << 7));
-
-	if(decode[opc].mode == &IMP)
-		cpu.ac = (tmp & 0x00FF);
-	else
-		MEM_write(addr_abs, tmp & 0x00FF);
 
 	return 0;
 }
@@ -696,33 +710,46 @@ uint8_t PLP(void) {
 }
 
 uint8_t ROL(void) {
-	tmp = (cpu.ac <<= 1);
-	tmp = (tmp & 0xFF00) ? (tmp | 0x01) : (tmp & ~(0x01));
+	if(decode[opc].mode == &IMP) {
+		tmp = (cpu.ac << 1) & 0xFE;
+		tmp |= CPU_get_flag(C);
+
+		CPU_set_flag(C, cpu.ac & (1 << 7));
+		cpu.ac = (tmp & 0x00FF);
+	}
+	else {
+		tmp = (MEM_read(addr_abs) << 1) & 0xFE;
+		tmp |= CPU_get_flag(C);
+
+		CPU_set_flag(C, MEM_read(addr_abs) & (1 << 7));
+		MEM_write(addr_abs, tmp & 0x00FF);
+	}
 
 	CPU_set_flag(Z, tmp == 0);
 	CPU_set_flag(N, tmp & (1 << 7));
-	CPU_set_flag(C, (tmp & (1 << 8)) != 0);
-
-	if(decode[opc].mode == &IMP)
-		cpu.ac = (tmp & 0x00FF);
-	else
-		MEM_write(addr_abs, tmp & 0x00FF);
 
 	return 0;
 }
 
 uint8_t ROR(void) {
-	tmp = (cpu.ac <<= 1);
-	tmp = (tmp & 0xFF00) ? (tmp | 0x01) : (tmp & ~(0x01));
+	if(decode[opc].mode == &IMP) {
+		tmp = (cpu.ac >> 1) & 0x7F;
+		tmp |= (CPU_get_flag(C) << 7);
+
+		CPU_set_flag(C, cpu.ac & 0x01);
+
+		cpu.ac = (tmp & 0x00FF);
+	}
+	else {
+		tmp = (MEM_read(addr_abs) >> 1) & 0x7F;
+		tmp |= (CPU_get_flag(C) << 7);
+
+		CPU_set_flag(C, MEM_read(addr_abs) & 1);
+		MEM_write(addr_abs, tmp & 0x00FF);
+	}
 
 	CPU_set_flag(Z, tmp == 0);
 	CPU_set_flag(N, tmp & (1 << 7));
-	CPU_set_flag(C, (tmp & (1 << 8)) != 0);
-
-	if(decode[opc].mode == &IMP)
-		cpu.ac = (tmp & 0x00FF);
-	else
-		MEM_write(addr_abs, tmp & 0x00FF);
 
 	return 0;
 }
@@ -757,13 +784,13 @@ uint8_t RTS(void) {
 }
 
 uint8_t SBC(void) {
-	uint8_t data = MEM_read(addr_abs) ^ 0xFF;
+	uint16_t data = MEM_read(addr_abs) ^ 0xFF;
 	uint16_t res = (cpu.ac + data + (uint16_t)CPU_get_flag(C));
 
-	CPU_set_flag(Z, cpu.ac == 0);
-	CPU_set_flag(N, cpu.ac & (1 << 7));
+	CPU_set_flag(N, res & (1 << 7));
+	CPU_set_flag(Z, (res & 0x00FF) == 0);
 	CPU_set_flag(C, ((res & 0xFF00) >> 7));
-	CPU_set_flag(V, ((cpu.ac^data) & ~(cpu.ac^data)) & (1 << 7));
+	CPU_set_flag(V, ((cpu.ac^res) & ~(cpu.ac^data)) & (1 << 7));
 
 	cpu.ac = (uint8_t)(res & 0x00FF);
 

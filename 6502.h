@@ -1,5 +1,5 @@
-#ifndef __6502_H__
-#define __6502_H__
+#ifndef _6502_H
+#define _6502_H
 
 #include <stdint.h>
 
@@ -15,7 +15,6 @@ typedef struct {
 	uint8_t ac, x, y, sp, st;
 	uint16_t pc;
 } CPU;
-
 
 /* zero-page: fast shorter instructions
  * first-page: stack;
@@ -36,35 +35,30 @@ typedef enum {
 	N     /* Negative */
 } ST_FLAG;
 
-void CPU_init(void);
-void CPU_reset(void);
-void CPU_fetch(INS *ins);
-uint8_t CPU_exec(INS ins);
-
-void CPU_irq(void);
-void CPU_nm_irq(void);
-void CPU_set_flag(ST_FLAG flag, uint8_t val);
-uint8_t CPU_get_flag(ST_FLAG flag);
-
-void CPU_dump(void);
 char *CPU_mode_name(uint8_t (*mode)(void));
 uint16_t CPU_get_pc(void);
-
-/* This should not be called from outside of file 6502.c */
+uint8_t CPU_exec(INS ins);
+uint8_t CPU_get_flag(ST_FLAG flag);
 void CPU_branch(void);
-void print_reg(uint8_t);
-
-
+void CPU_dump(void);
+void CPU_fetch(INS *ins);
+void CPU_init(void);
+void CPU_irq(void);
+void CPU_nm_irq(void);
+void CPU_reset(void);
+void CPU_set_flag(ST_FLAG flag, uint8_t val);
 
 void MEM_init(void);
 void MEM_set_pc_start(uint16_t addr);
 uint8_t MEM_read(uint16_t addr);
-uint8_t MEM_write(uint16_t addr, uint8_t val);
-
+uint8_t MEM_write(uint16_t addr, uint8_t val); /* returns written value */
 void MEM_dump(void);
 void MEM_dump_page(uint16_t page);
 void MEM_dump_last_six(void);
 void MEM_load_from_file(char *fp);
+
+
+void print_reg(uint8_t);
 
 
 /*  Addresing modes  */
