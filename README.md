@@ -1,6 +1,6 @@
 # 6502 Emulator
 
-WARNING: not all the CPU instructions are implemented yet (too minimal lol)
+A very minimal 6502 emulator that can succesfully pass all of the [6502_functional_test](https://github.com/Klaus2m5/6502_65C02_functional_tests) tests.
 
 ## Resources used
 - W65C02S datasheet (newer 6502): <br>
