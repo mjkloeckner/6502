@@ -3,6 +3,7 @@
 A very minimal 6502 emulator that can succesfully pass [6502_functional_test](https://github.com/Klaus2m5/6502_65C02_functional_tests).
 
 ## Resources used
+
 - W65C02S datasheet (newer 6502):
 	https://eater.net/datasheets/w65c02s.pdf
 - 6502 Instruction Set:
@@ -19,3 +20,7 @@ A very minimal 6502 emulator that can succesfully pass [6502_functional_test](ht
 	https://www.youtube.com/watch?v=LnzuMJLZRdU
 - Obelisk webpage archive:
 	https://web.archive.org/web/20210803072420/http://www.obelisk.me.uk/6502/
+
+## License
+
+[MIT](https://opensource.org/licenses/MIT)
