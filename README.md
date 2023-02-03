@@ -1,6 +1,7 @@
 # 6502 Emulator
 
-A very minimal 6502 emulator that can succesfully pass [6502_functional_test](https://github.com/Klaus2m5/6502_65C02_functional_tests).
+A very minimal 6502 emulator that can succesfully pass
+[6502_functional_test](https://github.com/Klaus2m5/6502_65C02_functional_tests).
 
 ## Resources used
 
@@ -11,9 +12,9 @@ A very minimal 6502 emulator that can succesfully pass [6502_functional_test](ht
 - 6502 Assembly:
 	https://en.wikibooks.org/wiki/6502_Assembly
 - 27c3: Reverse Engineering the MOS 6502 CPU (en):
-	https://www.youtube.com/watch?v=fWqBmmPQP40&t=34s
+	https://www.youtube.com/watch?v=fWqBmmPQP40
 - NES Emulator Part #2: The CPU (6502 Implementation):
-	https://www.youtube.com/watch?v=8XmxKPJDGU0&t=625s
+	https://www.youtube.com/watch?v=8XmxKPJDGU0
 - Emulator 101 - 6502 Addressing Modes:
 	http://www.emulator101.com/6502-addressing-modes.html
 - “Hello, world” from scratch on a 6502 — Part 1:
