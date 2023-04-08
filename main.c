@@ -25,7 +25,8 @@ int main (void) {
 	MEM_init();
 
 	/* Load program to memory */
-	MEM_load_from_file(INPUT_FILE_PATH);
+	if(MEM_load_from_file(INPUT_FILE_PATH))
+		return 1;
 
 	/* set the first address that the pc should be set to */
 	MEM_set_pc_start(0x0400);
@@ -33,6 +34,7 @@ int main (void) {
 	/* Initialize cpu registers to 0 */
 	CPU_init();
 
+	/* initialize registers from memmory */
 	CPU_reset();
 
 	int c = 0;

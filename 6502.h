@@ -55,7 +55,7 @@ uint8_t MEM_write(uint16_t addr, uint8_t val); /* returns written value */
 void MEM_dump(void);
 void MEM_dump_page(uint16_t page);
 void MEM_dump_last_six(void);
-void MEM_load_from_file(char *fp);
+int MEM_load_from_file(char *fp);
 
 
 void print_reg(uint8_t);

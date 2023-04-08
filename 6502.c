@@ -50,10 +50,10 @@ uint8_t CPU_exec(INS ins) {
     do {
         if (cyc == 0) {
 			if (!strcmp(ins.name, "???")) {
-				printf("EXEC: invalid instruction reached\n");
+				/* printf("EXEC: invalid instruction reached\n"); */
 				return 1;
 			} else if (!strcmp(ins.name, "BNE") && !(strcmp(prev_ins.name, "BNE"))) {
-				printf("EXEC: consecutive BNE reached\n");
+				/* printf("EXEC: consecutive BNE reached\n"); */
 				return 1;
 			}
 
@@ -141,13 +141,17 @@ void print_reg(uint8_t reg) {
 void CPU_dump(void) {
 	INS aux = decode[MEM_read(cpu.pc)];
 
+	printf("\033[?25l"); /* hide cursor */
+
 	printf("    a:   %02X (%3d)            N V - B D I Z C\n", cpu.ac, cpu.ac);
 	printf("    x:   %02X (%3d)            ", cpu.x, cpu.x);
 	print_reg(cpu.st);
 	printf("    y:   %02X (%3d)\n", cpu.y, cpu.y);
 	printf("   sp:   %02X\n", cpu.sp);
 	printf("   pc: %04X -> %02X (%s)(%s)\n", cpu.pc, mem.ram[cpu.pc], aux.name, CPU_mode_name(aux.mode));
-	printf("--------------------------------------------\n");
+	printf("\033[5A");
+
+	printf("\033[?25h"); /* re-enable cursor */
 }
 
 uint16_t CPU_get_pc(void) {
@@ -165,18 +169,24 @@ void MEM_set_pc_start(uint16_t addr) {
 	mem.ram[0xFFFD] = ((addr & 0xFF00) >> 8);
 }
 
-void MEM_load_from_file(char *path) {
+int MEM_load_from_file(char *path) {
 	FILE *fp;
 
-	if(path == NULL) return;
+	if(path == NULL) {
+		return 1;
+	}
 
 	fp = fopen(path, "rb");
-	if(fp == NULL) return;
+	if(fp == NULL) {
+		fprintf(stderr, "ERROR: file \"%s\" not found.\n", path);
+		return 2;
+	}
 
 	fread(mem.ram, 1, sizeof(mem.ram), fp);
 	/* fread(mem.ram + 0x8000, 1, 0x7FFF - 0x6, fp); */
 
 	fclose(fp);
+	return 0;
 }
 
 uint8_t MEM_read(uint16_t addr) {
@@ -237,7 +247,7 @@ uint8_t ABS(void) {
 
 	addr_abs = (hi << 8) | lo;
 
-	printf("Address: %04X -> (%02X)\n", addr_abs, MEM_read(addr_abs));
+	/* printf("Address: %04X -> (%02X)\n", addr_abs, MEM_read(addr_abs)); */
 	return 0;
 }
 
@@ -247,10 +257,10 @@ uint8_t ABX(void) {
 
 	addr_abs = (hi << 8) | lo;
 
-	printf("address fetched: %04X\nx register: %02X\nend address: %04X (%02X)\n", addr_abs, cpu.x, addr_abs + cpu.x, MEM_read(addr_abs + cpu.x));
+	/* printf("address fetched: %04X\nx register: %02X\nend address: %04X (%02X)\n", addr_abs, cpu.x, addr_abs + cpu.x, MEM_read(addr_abs + cpu.x)); */
 
 	addr_abs += cpu.x;
-	printf("Address: %04X -> (%02X)\n", addr_abs, MEM_read(addr_abs));
+	/* printf("Address: %04X -> (%02X)\n", addr_abs, MEM_read(addr_abs)); */
 
 	return ((addr_abs & 0x00FF) != (hi << 8)) ? 1 : 0;
 }
@@ -261,16 +271,16 @@ uint8_t ABY(void) {
 
 	addr_abs = (hi << 8) | lo;
 
-	printf("address fetched: %04X\ny register: %02X\nend address: %04X (%02X)\n", addr_abs, cpu.y, addr_abs + cpu.y, MEM_read(addr_abs + cpu.y));
+	/* printf("address fetched: %04X\ny register: %02X\nend address: %04X (%02X)\n", addr_abs, cpu.y, addr_abs + cpu.y, MEM_read(addr_abs + cpu.y)); */
 
 	addr_abs += cpu.y;
-	printf("Address: %04X -> (%02X)\n", addr_abs, MEM_read(addr_abs));
+	/* printf("Address: %04X -> (%02X)\n", addr_abs, MEM_read(addr_abs)); */
 	return ((addr_abs & 0x00FF) != (hi << 8)) ? 1 : 0;
 }
 
 uint8_t IMM(void) {
 	addr_abs = cpu.pc++;
-	printf("Address: %04X -> (%02X)\n", addr_abs, MEM_read(addr_abs));
+	/* printf("Address: %04X -> (%02X)\n", addr_abs, MEM_read(addr_abs)); */
 	return 0;
 }
 
@@ -291,7 +301,7 @@ uint8_t IND(void) {
 	 * and simulate page boundary hardware bug */
 	addr_abs = (MEM_read((lo == 0xFF) ? (p & 0xFF00) : p + 1) << 8) | MEM_read(p);
 
-	printf("Address: %04X -> (%02X)\n", addr_abs, MEM_read(addr_abs));
+	/* printf("Address: %04X -> (%02X)\n", addr_abs, MEM_read(addr_abs)); */
 	return 0;
 }
 
@@ -304,7 +314,7 @@ uint8_t IZX(void) {
 
 	addr_abs = ((hi << 8) & 0xFF00) | lo;
 
-	printf("Address: %04X -> (%02X)\n", addr_abs, MEM_read(addr_abs));
+	/* printf("Address: %04X -> (%02X)\n", addr_abs, MEM_read(addr_abs)); */
 
 	return 0;
 }
@@ -319,14 +329,14 @@ uint8_t IZY(void) {
 	addr_abs = ((hi << 8) & 0xFF00) | lo;
 	addr_abs += cpu.y;
 
-	printf("Address: %04X -> (%02X)\n", addr_abs, MEM_read(addr_abs));
+	/* printf("Address: %04X -> (%02X)\n", addr_abs, MEM_read(addr_abs)); */
 
 	return ((addr_abs & 0xFF00) != (hi << 8)) ? 1 : 0;
 }
 
 uint8_t REL(void) {
 	addr_rel = (MEM_read(cpu.pc++) & 0x00FF);
-	printf("REL: offset: %02X (%d)\n", addr_rel, (int8_t)addr_rel);
+	/* printf("REL: offset: %02X (%d)\n", addr_rel, (int8_t)addr_rel); */
 
 	/* signed byte */
     if (addr_rel & (1 << 7))
@@ -339,21 +349,21 @@ uint8_t REL(void) {
 uint8_t ZP0(void) {
 	addr_abs = (MEM_read(cpu.pc++) & 0x00FF);
 
-	printf("Address: %04X -> (%02X)\n", addr_abs, MEM_read(addr_abs));
+	/* printf("Address: %04X -> (%02X)\n", addr_abs, MEM_read(addr_abs)); */
 	return 0;
 }
 
 uint8_t ZPX(void) {
 	addr_abs = (MEM_read(cpu.pc++) + cpu.x) & 0x00FF;
 
-	printf("Address: %04X -> (%02X)\n", addr_abs, MEM_read(addr_abs));
+	/* printf("Address: %04X -> (%02X)\n", addr_abs, MEM_read(addr_abs)); */
 	return 0;
 }
 
 uint8_t ZPY(void) {
 	addr_abs = (MEM_read(cpu.pc++) + cpu.y) & 0x00FF;
 
-	printf("Address: %04X -> (%02X)\n", addr_abs, MEM_read(addr_abs));
+	/* printf("Address: %04X -> (%02X)\n", addr_abs, MEM_read(addr_abs)); */
 	return 0;
 }
 
@@ -506,7 +516,7 @@ uint8_t CLV(void) {
 uint8_t CMP(void) {
 	tmp = (MEM_read(addr_abs) & 0x00FF);
 
-	printf("cmp: %d, acc: %d\n", tmp, cpu.ac);
+	/* printf("cmp: %d, acc: %d\n", tmp, cpu.ac); */
 
 	CPU_set_flag(C, cpu.ac >= tmp);
 	CPU_set_flag(Z, cpu.ac == tmp);
