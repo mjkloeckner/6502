@@ -1,8 +1,15 @@
+#define _POSIX_C_SOURCE 199309L
+
 #include "6502.h"
+#include "tui.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdbool.h>
+#include <signal.h>
+
+#include <time.h>
+#define usleep(t) nanosleep((const struct timespec[]){{0, t * 1000L}}, NULL)
 
 #define INPUT_FILE_PATH	"6502_functional_test.bin"
 
@@ -16,6 +23,10 @@ void CPU_brk(uint16_t pc) {
 		printf("BRK: %2X reached\n", pc);
 		brk = true;
 	}
+}
+
+void sig_handler(int signo) {
+	if (signo == SIGINT) brk = true;
 }
 
 int main (void) {
@@ -37,22 +48,23 @@ int main (void) {
 	/* initialize registers from memmory */
 	CPU_reset();
 
-	int c = 0;
+	set_input_mode();
+	signal(SIGINT, sig_handler);
+	signal (SIGQUIT, sig_handler);
+	atexit (reset_input_mode);
+
 	do {
-		if(c == 'c') brk = false;
+		/* set break point at pc 0x336d */
 		CPU_brk(0x336d);
 
-		/* Fetch an instruction and increment pc */
 		CPU_fetch(&ins);
-
 		CPU_dump();
-		/* MEM_dump_last_six(); */
-		/* MEM_dump_page(0x0000); */
-		/* MEM_dump_page(0x0100); */
 
 		/* Execute instruction */
 		if(CPU_exec(ins) != 0) brk = true;
-	} while(brk ? ((c = getchar()) != 'q') : true);
+		usleep(100);
+	} while(!brk);
 
+	reset_input_mode();
 	return 0;
 }

@@ -141,17 +141,14 @@ void print_reg(uint8_t reg) {
 void CPU_dump(void) {
 	INS aux = decode[MEM_read(cpu.pc)];
 
-	printf("\033[?25l"); /* hide cursor */
-
-	printf("    a:   %02X (%3d)            N V - B D I Z C\n", cpu.ac, cpu.ac);
-	printf("    x:   %02X (%3d)            ", cpu.x, cpu.x);
+	printf("  a:   %02X (%3d)              N V - B D I Z C\n"
+			"  x:   %02X (%3d)              ", cpu.ac, cpu.ac, cpu.x, cpu.x);
 	print_reg(cpu.st);
-	printf("    y:   %02X (%3d)\n", cpu.y, cpu.y);
-	printf("   sp:   %02X\n", cpu.sp);
-	printf("   pc: %04X -> %02X (%s)(%s)\n", cpu.pc, mem.ram[cpu.pc], aux.name, CPU_mode_name(aux.mode));
-	printf("\033[5A");
-
-	printf("\033[?25h"); /* re-enable cursor */
+	printf("  y:   %02X (%3d)\n"
+			" sp:   %02X\n"
+			" pc: %04X -> %02X (%s)(%s)\n"
+			"\033[5A", cpu.y, cpu.y, cpu.sp, cpu.pc, mem.ram[cpu.pc], aux.name,
+			CPU_mode_name(aux.mode));
 }
 
 uint16_t CPU_get_pc(void) {
