@@ -8,6 +8,8 @@
 #include <stdbool.h>
 #include <signal.h>
 
+#include <unistd.h>
+
 #include <time.h>
 #define usleep(t) nanosleep((const struct timespec[]){{0, t * 1000L}}, NULL)
 
@@ -60,9 +62,14 @@ int main (void) {
 		CPU_fetch(&ins);
 		CPU_dump();
 
-		/* Execute instruction */
-		if(CPU_exec(ins) != 0) brk = true;
-		usleep(100);
+		if(CPU_exec(ins) != 0) {
+			/* exit if invalid instruction */
+			char c;
+			read(STDIN_FILENO, &c, 1);
+			brk = true;
+		}
+
+		nsleep(1000);
 	} while(!brk);
 
 	reset_input_mode();
