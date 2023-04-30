@@ -29,6 +29,7 @@ void CPU_brk(uint16_t pc) {
 
 void sig_handler(int signo) {
 	if (signo == SIGINT) brk = true;
+	if (signo == SIGQUIT) brk = true;
 }
 
 int main(void) {
