@@ -11,7 +11,7 @@
 #include <unistd.h>
 
 #include <time.h>
-#define usleep(t) nanosleep((const struct timespec[]){{0, t * 1000L}}, NULL)
+#define nsleep(t) nanosleep((const struct timespec[]){{0, t * 1000L}}, NULL)
 
 #define INPUT_FILE_PATH	"6502_functional_test.bin"
 
@@ -21,7 +21,7 @@
 static bool brk = false;
 
 void CPU_brk(uint16_t pc) {
-	if(CPU_get_pc() == pc) {
+	if (CPU_get_pc () == pc) {
 		printf("BRK: %2X reached\n", pc);
 		brk = true;
 	}
@@ -31,7 +31,7 @@ void sig_handler(int signo) {
 	if (signo == SIGINT) brk = true;
 }
 
-int main (void) {
+int main(void) {
 	INS ins;
 
 	/* Initialize memory to 0 */
@@ -52,8 +52,8 @@ int main (void) {
 
 	set_input_mode();
 	signal(SIGINT, sig_handler);
-	signal (SIGQUIT, sig_handler);
-	atexit (reset_input_mode);
+	signal(SIGQUIT, sig_handler);
+	atexit(reset_input_mode);
 
 	do {
 		/* set break point at pc 0x336d */
