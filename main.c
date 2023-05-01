@@ -1,5 +1,3 @@
-#define _POSIX_C_SOURCE 199309L
-
 #include "6502.h"
 #include "tui.h"
 

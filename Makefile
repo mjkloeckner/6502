@@ -1,6 +1,5 @@
 CC := gcc
-CLIBS :=
-CFLAGS := -Wall -Wshadow -pedantic -ansi -std=c99 -O3
+CFLAGS := -D_POSIX_C_SOURCE=199309L -Wall -Wshadow -pedantic -ansi -std=c99 -O3
 SRCS := $(wildcard *.c)
 OBJS := $(SRCS:.c=.o)
 
