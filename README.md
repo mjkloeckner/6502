@@ -1,6 +1,6 @@
 # 6502 Emulator
 
-A very minimal 6502 emulator that can succesfully pass
+A very simple 6502 emulator that can succesfully pass
 [6502_functional_test](https://github.com/Klaus2m5/6502_65C02_functional_tests).
 
 ## Resources used
